@@ -15,6 +15,8 @@ import memcache
 
 import appsinstalled_pb2
 
+success = failed = 0
+
 """
 directory: [filepath, filepath, filepath, ...]
 
@@ -142,8 +144,7 @@ class BufferQueueRouter:
                 self._put_buffer(key)
 
 
-def lines_worker(src_queue, dst_queues, memcache_addresses, chunk_size):
-    # @TODO calculcate err_rate = errors / processed
+def lines_worker(src_queue, dst_queues, memcache_addresses, chunk_size, lock):
     """
     Read lines from queue, pack them into protobuff object and send data in dst_queue
     """
@@ -172,7 +173,9 @@ def lines_worker(src_queue, dst_queues, memcache_addresses, chunk_size):
     logging.debug('Finish processed line in memc, with errors = %s' % errors)
 
 
-def memcache_consumer(src_queue, addr, memcache_client, dry_run=False):
+def memcache_consumer(src_queue, addr, memcache_client, lock, dry_run=False):
+    global success
+    global failed
     """
     Read data from queue and save in memcache
     """
@@ -188,8 +191,16 @@ def memcache_consumer(src_queue, addr, memcache_client, dry_run=False):
             logging.debug("%s -> %s" % (addr, len(mapping.keys())))
         else:
             try:
-                failed = memcache_client.set_multi(addr, mapping)
-                logging.debug('Inserting data in memc %s, errors = %s' % (addr, len(failed)))
+                not_set_keys = memcache_client.set_multi(addr, mapping)
+
+                _failed = len(not_set_keys)
+                _success = len(mapping.keys()) - _failed
+
+                with lock:
+                    success += _success
+                    failed += _failed
+
+                logging.debug('Inserting data in memc %s, errors = %s' % (addr, len(not_set_keys)))
             except Exception as e:
                 logging.exception("Cannot write to memc %s: %s" % (addr, e))
 
@@ -237,7 +248,7 @@ class MemcacheQueueManager:
 
 class ConsumerPool:
     """
-    
+
     """
 
     def __init__(self, que, cls, size, target, args):
@@ -276,6 +287,7 @@ def main(options):
 
     files = glob.iglob(options.pattern)
 
+    lock = mp.Lock()
     lines_queue = mp.Queue()
     memcache_queue_manager = MemcacheQueueManager(device_memc.values())
 
@@ -284,7 +296,7 @@ def main(options):
                                      size=mp.cpu_count(),
                                      cls=mp.Process,
                                      target=lines_worker,
-                                     args=(memcache_queue_manager, device_memc, 1500, ))
+                                     args=(memcache_queue_manager, device_memc, 1500, lock, ))
     lines_worker_pool.start()
 
     # Put lines from files in queue
@@ -300,7 +312,7 @@ def main(options):
             size=2,
             cls=threading.Thread,
             target=memcache_consumer,
-            args=(addr, memcache_client, options.dry)
+            args=(addr, memcache_client, lock, options.dry, )
         )
     for pool in memcache_consumer_pool.values():
         pool.start()
@@ -315,7 +327,12 @@ def main(options):
         pool.stop()
         pool.join()
 
-    print('Execution took {:.4f}'.format(time.time() - ts))
+    err_rate = float(failed) / (failed + success)
+    if err_rate < NORMAL_ERR_RATE:
+        logging.info("Acceptable error rate (%s). Successfull load" % err_rate)
+    else:
+        logging.error("High error rate (%s > %s). Failed load" % (err_rate, NORMAL_ERR_RATE))
+    logging.info('Execution took {:.4f}'.format(time.time() - ts))
 
 
 def prototest():
@@ -339,8 +356,8 @@ if __name__ == '__main__':
     op.add_option("-t", "--test", action="store_true", default=False)
     op.add_option("-l", "--log", action="store", default=None)
     op.add_option("--dry", action="store_true", default=False)
-    op.add_option("--pattern", action="store", default="data/appsinstalled/*.tsv.gz")
-    # op.add_option("--pattern", action="store", default="test_data/*.tsv.gz")
+    # op.add_option("--pattern", action="store", default="data/appsinstalled/*.tsv.gz")
+    op.add_option("--pattern", action="store", default="test_data/*.tsv.gz")
 
     op.add_option("--idfa", action="store", default="127.0.0.1:33013")
     op.add_option("--gaid", action="store", default="127.0.0.1:33014")
