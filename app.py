@@ -22,13 +22,13 @@ directory: [filepath, filepath, filepath, ...]
  || lines_producer: threading
  \/
 
-queue: [ [line, line, line, ... ], [line, line, line,... ], ...]
+queue: [ task, task, task, ...], task = [line, line, line, ... ]
 
  ||
  || lines_worker: multiprocessing
  \/
 
-4 x queue: [ [[key, packed], [key, packed], ...], ...]
+4 x queue: [ task, task, task, ...], task = [ [key, packed], [key, packed], ...]
 
  ||
  || memcache_consumer: threading
