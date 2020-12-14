@@ -1,45 +1,30 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import collections
-import glob
-import gzip
-import logging
 import os
+import gzip
 import sys
-import time
+import glob
+import logging
+import collections
 from optparse import OptionParser
-
-# pip install python-memcached
-import memcache
-
 # brew install protobuf
 # protoc  --python_out=. ./appsinstalled.proto
 # pip install protobuf
 import appsinstalled_pb2
+# pip install python-memcached
+import memcache
 
 NORMAL_ERR_RATE = 0.01
 AppsInstalled = collections.namedtuple("AppsInstalled", ["dev_type", "dev_id", "lat", "lon", "apps"])
 
 
 def dot_rename(path):
-    """
-    Rename file after work is done
-    :param path: filepath
-    :return:
-    """
     head, fn = os.path.split(path)
     # atomic in most cases
     os.rename(path, os.path.join(head, "." + fn))
 
 
 def insert_appsinstalled(memc_addr, appsinstalled, dry_run=False):
-    """
-    Serializer AppInstalled Object via protobuff and insert in memcached storage
-    :param memc_addr: Memcahced address
-    :param appsinstalled: AppInstalled Object
-    :param dry_run: True|False
-    :return:
-    """
     ua = appsinstalled_pb2.UserApps()
     ua.lat = appsinstalled.lat
     ua.lon = appsinstalled.lon
@@ -61,12 +46,6 @@ def insert_appsinstalled(memc_addr, appsinstalled, dry_run=False):
 
 
 def parse_appsinstalled(line):
-    """
-    Convert line from file into AppInstalled Object
-    :param line: line from file
-    :return: AppInstalled Object
-    """
-    line = line.decode("utf-8")
     line_parts = line.strip().split("\t")
     if len(line_parts) < 5:
         return
@@ -85,52 +64,35 @@ def parse_appsinstalled(line):
     return AppsInstalled(dev_type, dev_id, lat, lon, apps)
 
 
-def read_file(filepath):
-    with gzip.open(filepath) as fr:
-        pass
-
-
 def main(options):
-    # map memcached addresses for each variable
     device_memc = {
         "idfa": options.idfa,
         "gaid": options.gaid,
         "adid": options.adid,
         "dvid": options.dvid,
     }
-
-    # get list of files
-    list_of_files = glob.iglob(options.pattern)
-    for fn in list_of_files:
+    for fn in glob.iglob(options.pattern):
         processed = errors = 0
         logging.info('Processing %s' % fn)
         fd = gzip.open(fn)
-
         for line in fd:
             line = line.strip()
             if not line:
                 continue
-            # convert line into AppInstalled Object
             appsinstalled = parse_appsinstalled(line)
-            logging.debug(appsinstalled)
             if not appsinstalled:
                 errors += 1
                 continue
-            # get memcached addresses by device type
             memc_addr = device_memc.get(appsinstalled.dev_type)
             if not memc_addr:
                 errors += 1
                 logging.error("Unknow device type: %s" % appsinstalled.dev_type)
                 continue
-
-            # insert AppInstalled Object into memcached
             ok = insert_appsinstalled(memc_addr, appsinstalled, options.dry)
             if ok:
                 processed += 1
             else:
                 errors += 1
-        # FOR END
-
         if not processed:
             fd.close()
             dot_rename(fn)
@@ -165,15 +127,13 @@ if __name__ == '__main__':
     op = OptionParser()
     op.add_option("-t", "--test", action="store_true", default=False)
     op.add_option("-l", "--log", action="store", default=None)
-    op.add_option("--dry", action="store_true", default=True)
-    # op.add_option("--pattern", action="store", default="data/appsinstalled/*.tsv.gz")
-    op.add_option("--pattern", action="store", default="tdata/*.tsv.gz")
+    op.add_option("--dry", action="store_true", default=False)
+    op.add_option("--pattern", action="store", default="/data/appsinstalled/*.tsv.gz")
     op.add_option("--idfa", action="store", default="127.0.0.1:33013")
     op.add_option("--gaid", action="store", default="127.0.0.1:33014")
     op.add_option("--adid", action="store", default="127.0.0.1:33015")
     op.add_option("--dvid", action="store", default="127.0.0.1:33016")
     (opts, args) = op.parse_args()
-
     logging.basicConfig(filename=opts.log, level=logging.INFO if not opts.dry else logging.DEBUG,
                         format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
     if opts.test:
