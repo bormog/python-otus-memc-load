@@ -179,8 +179,6 @@ def memcache_consumer(src_queue, addr, memcache_client, lock, dry_run=False):
     """
     Read data from queue and save in memcache
     """
-    # @TODO retry and timeouts!
-    # @TODO return result: True/False OR collect errors
     while True:
         lines = src_queue.get()
         if isinstance(lines, str) and lines == 'quit':
@@ -273,7 +271,6 @@ class ConsumerPool:
 
 
 def main(options):
-    # @TODO avoid logging lock in process spawn
     ts = time.time()
 
     device_memc = {
@@ -352,6 +349,15 @@ def prototest():
 
 
 if __name__ == '__main__':
+    # @TODO collect errors from processes
+    # @TODO retry for memcache
+    # @TODO rename file after work is done
+    # @TODO rename app to main, remove memc_load
+    # @TODO move producers, workers, consumers count in options
+    # @TODO move produce_buff_size, worker_buff_size in options
+    # @TODO avoid logging lock in process spawn
+    # @TODO write some tests
+
     op = OptionParser()
     op.add_option("-t", "--test", action="store_true", default=False)
     op.add_option("-l", "--log", action="store", default=None)
