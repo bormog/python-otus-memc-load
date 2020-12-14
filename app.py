@@ -46,8 +46,6 @@ AppsInstalled = collections.namedtuple('AppsInstalled', ['dev_type', 'dev_id', '
 def dot_rename(path):
     """
     Rename file after work is done
-    @param path: filepath
-    @return: None
     """
     head, fn = os.path.split(path)
     # atomic in most cases
@@ -55,6 +53,9 @@ def dot_rename(path):
 
 
 def serialize_appsinstalled(appsinstalled):
+    """
+    Serialize AppsInstalled object into protobuff
+    """
     ua = appsinstalled_pb2.UserApps()
     ua.lat = appsinstalled.lat
     ua.lon = appsinstalled.lon
@@ -67,8 +68,6 @@ def serialize_appsinstalled(appsinstalled):
 def parse_appsinstalled(line):
     """
     Convert line from file into AppInstalled Object
-    :param line: line from file
-    :return: AppInstalled Object
     """
     line = line.decode("utf-8")
     line_parts = line.strip().split("\t")
@@ -90,6 +89,9 @@ def parse_appsinstalled(line):
 
 
 def lines_producer(filepath, dst_queue, chunk_size, dry_run=False):
+    """
+    Read lines from file, create chunk by chunk_size and send into dst_queue
+    """
     if not os.path.isfile(filepath):
         logging.error('File not found by path %s' % filepath)
         return False
@@ -115,6 +117,9 @@ def lines_producer(filepath, dst_queue, chunk_size, dry_run=False):
 
 
 class BufferQueueRouter:
+    """
+    Create chunk by max_size and send data in queue
+    """
 
     def __init__(self, queues, max_size):
         self._queues = queues
@@ -140,7 +145,7 @@ class BufferQueueRouter:
 def lines_worker(src_queue, dst_queues, memcache_addresses, chunk_size):
     # @TODO calculcate err_rate = errors / processed
     """
-    Read lines from queue and pack them into protobuff object
+    Read lines from queue, pack them into protobuff object and send data in dst_queue
     """
     errors = 0
     router = BufferQueueRouter(queues=dst_queues, max_size=chunk_size)
@@ -168,6 +173,9 @@ def lines_worker(src_queue, dst_queues, memcache_addresses, chunk_size):
 
 
 def memcache_consumer(src_queue, addr, memcache_client, dry_run=False):
+    """
+    Read data from queue and save in memcache
+    """
     # @TODO retry and timeouts!
     # @TODO return result: True/False OR collect errors
     while True:
@@ -187,20 +195,12 @@ def memcache_consumer(src_queue, addr, memcache_client, dry_run=False):
 
 
 class MemcacheClient:
+    """
+    Wrapper for memcache
+    """
 
     def __init__(self, addresses):
         self._clients = {address: memcache.Client([address]) for address in addresses}
-
-    def set(self, address, key, value):
-        """ Unconditionally sets a key to a given value in the memcache.
-        @param address: Memcache address
-        @param key: key
-        @param value: value
-        @return: Nonzero on success.
-        @rtype: int
-        """
-        client = self._clients.get(address)
-        return client.set(key, value)
 
     def set_multi(self, address, mapping):
         """ Sets multiple keys in the memcache doing just one query.
@@ -217,6 +217,9 @@ class MemcacheClient:
 
 
 class MemcacheQueueManager:
+    """
+    Wrapper for manipulate different queues
+    """
 
     def __init__(self, addresses, maxsize=0):
         self._queues = {address: mp.Queue(maxsize=maxsize) for address in addresses}
@@ -233,6 +236,9 @@ class MemcacheQueueManager:
 
 
 class ConsumerPool:
+    """
+    
+    """
 
     def __init__(self, que, cls, size, target, args):
         self._que = que
@@ -282,9 +288,9 @@ def main(options):
     lines_worker_pool.start()
 
     # Put lines from files in queue
-    lines_pool = ThreadPool(processes=4)
+    lines_producer_pool = ThreadPool(processes=4)
     job = partial(lines_producer, dst_queue=lines_queue, chunk_size=3000, dry_run=options.dry)
-    lines_pool.map(job, files)
+    lines_producer_pool.map(job, files)
 
     # Save data in memcache
     memcache_consumer_pool = {}
@@ -299,8 +305,8 @@ def main(options):
     for pool in memcache_consumer_pool.values():
         pool.start()
 
-    lines_pool.close()
-    lines_pool.join()
+    lines_producer_pool.close()
+    lines_producer_pool.join()
 
     lines_worker_pool.stop()
     lines_worker_pool.join()
