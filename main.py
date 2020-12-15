@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import collections
 import glob
 import gzip
@@ -11,9 +13,11 @@ from functools import partial
 from multiprocessing.dummy import Pool as ThreadPool
 from optparse import OptionParser
 
-import memcache
 
 import appsinstalled_pb2
+
+
+from .memc import MemcacheClient
 
 success = failed = 0
 
@@ -71,7 +75,7 @@ def parse_appsinstalled(line):
     """
     Convert line from file into AppInstalled Object
     """
-    line = line.decode("utf-8")
+    line = line.decode('utf-8')
     line_parts = line.strip().split("\t")
     if len(line_parts) < 5:
         return
@@ -92,7 +96,7 @@ def parse_appsinstalled(line):
 
 def lines_producer(filepath, dst_queue, chunk_size, dry_run=False):
     """
-    Read lines from file, create chunk by chunk_size and send into dst_queue
+    Read lines from filepath, create chunks by chunk_size and send in dst_queue
     """
     if not os.path.isfile(filepath):
         logging.error('File not found by path %s' % filepath)
@@ -170,7 +174,7 @@ def lines_worker(src_queue, dst_queues, memcache_addresses, chunk_size, lock):
             key, packed = serialize_appsinstalled(apps_installed)
             router.set(memc_address, (key, packed,))
 
-    logging.debug('Finish processed line in memc, with errors = %s' % errors)
+    logging.debug('Finish processed lines in memcache queue, with errors = %s' % errors)
 
 
 def memcache_consumer(src_queue, addr, memcache_client, lock, dry_run=False):
@@ -203,28 +207,6 @@ def memcache_consumer(src_queue, addr, memcache_client, lock, dry_run=False):
                 logging.exception("Cannot write to memc %s: %s" % (addr, e))
 
 
-class MemcacheClient:
-    """
-    Wrapper for memcache
-    """
-
-    def __init__(self, addresses):
-        self._clients = {address: memcache.Client([address]) for address in addresses}
-
-    def set_multi(self, address, mapping):
-        """ Sets multiple keys in the memcache doing just one query.
-
-        @param address: Memcache address
-        @param mapping: A dict of key/value pairs to set.
-        @return: List of keys which failed to be stored [ memcache out
-           of memory, etc. ].
-
-        @rtype: list
-        """
-        client = self._clients.get(address)
-        return client.set_multi(mapping)
-
-
 class MemcacheQueueManager:
     """
     Wrapper for manipulate different queues
@@ -246,7 +228,7 @@ class MemcacheQueueManager:
 
 class ConsumerPool:
     """
-
+    Wrapper for creating a list of queue consumers
     """
 
     def __init__(self, que, cls, size, target, args):
@@ -293,7 +275,7 @@ def main(options):
                                      size=mp.cpu_count(),
                                      cls=mp.Process,
                                      target=lines_worker,
-                                     args=(memcache_queue_manager, device_memc, 1500, lock, ))
+                                     args=(memcache_queue_manager, device_memc, 1500, lock,))
     lines_worker_pool.start()
 
     # Put lines from files in queue
@@ -309,7 +291,7 @@ def main(options):
             size=2,
             cls=threading.Thread,
             target=memcache_consumer,
-            args=(addr, memcache_client, lock, options.dry, )
+            args=(addr, memcache_client, lock, options.dry,)
         )
     for pool in memcache_consumer_pool.values():
         pool.start()
@@ -350,11 +332,10 @@ def prototest():
 
 if __name__ == '__main__':
     # @TODO collect errors from processes
-    # @TODO retry for memcache
     # @TODO rename file after work is done
     # @TODO rename app to main, remove memc_load
     # @TODO move producers, workers, consumers count in options
-    # @TODO move produce_buff_size, worker_buff_size in options
+    # @TODO move producer_buff_size, worker_buff_size in options
     # @TODO avoid logging lock in process spawn
     # @TODO write some tests
 
