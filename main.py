@@ -17,7 +17,7 @@ from optparse import OptionParser
 import appsinstalled_pb2
 
 
-from .memc import MemcacheClient
+from memc import MemcacheClient
 
 success = failed = 0
 
@@ -272,15 +272,15 @@ def main(options):
 
     # Convert lines in protobuff objects and put in queue
     lines_worker_pool = ConsumerPool(que=lines_queue,
-                                     size=mp.cpu_count(),
+                                     size=options.workers_count,
                                      cls=mp.Process,
                                      target=lines_worker,
-                                     args=(memcache_queue_manager, device_memc, 1500, lock,))
+                                     args=(memcache_queue_manager, device_memc, options.worker_buff_size, lock,))
     lines_worker_pool.start()
 
     # Put lines from files in queue
-    lines_producer_pool = ThreadPool(processes=4)
-    job = partial(lines_producer, dst_queue=lines_queue, chunk_size=3000, dry_run=options.dry)
+    lines_producer_pool = ThreadPool(processes=options.producers_count)
+    job = partial(lines_producer, dst_queue=lines_queue, chunk_size=options.producer_buff_size, dry_run=options.dry)
     lines_producer_pool.map(job, files)
 
     # Save data in memcache
@@ -288,7 +288,7 @@ def main(options):
     for addr, que in memcache_queue_manager:
         memcache_consumer_pool[addr] = ConsumerPool(
             que=que,
-            size=2,
+            size=options.consumers_count,
             cls=threading.Thread,
             target=memcache_consumer,
             args=(addr, memcache_client, lock, options.dry,)
@@ -333,9 +333,6 @@ def prototest():
 if __name__ == '__main__':
     # @TODO collect errors from processes
     # @TODO rename file after work is done
-    # @TODO rename app to main, remove memc_load
-    # @TODO move producers, workers, consumers count in options
-    # @TODO move producer_buff_size, worker_buff_size in options
     # @TODO avoid logging lock in process spawn
     # @TODO write some tests
 
@@ -350,6 +347,13 @@ if __name__ == '__main__':
     op.add_option("--gaid", action="store", default="127.0.0.1:33014")
     op.add_option("--adid", action="store", default="127.0.0.1:33015")
     op.add_option("--dvid", action="store", default="127.0.0.1:33016")
+
+    op.add_option('--producers_count', action='store', default=4)
+    op.add_option('--workers_count', action='store', default=mp.cpu_count())
+    op.add_option('--consumers_count', action='store', default=2)
+    op.add_option('--producer_buff_size', action='store', default=3000)
+    op.add_option('--worker_buff_size', action='store', default=2000)
+
     (opts, args) = op.parse_args()
 
     logging.basicConfig(filename=opts.log,
