@@ -12,11 +12,7 @@ import time
 from functools import partial
 from multiprocessing.dummy import Pool as ThreadPool
 from optparse import OptionParser
-
-
 import appsinstalled_pb2
-
-
 from memc import MemcacheClient
 
 success = failed = 0
@@ -148,7 +144,7 @@ class BufferQueueRouter:
                 self._put_buffer(key)
 
 
-def lines_worker(src_queue, dst_queues, memcache_addresses, chunk_size, lock):
+def lines_worker(src_queue, dst_queues, memcache_addresses, chunk_size, return_dict):
     """
     Read lines from queue, pack them into protobuff object and send data in dst_queue
     """
@@ -174,6 +170,7 @@ def lines_worker(src_queue, dst_queues, memcache_addresses, chunk_size, lock):
             key, packed = serialize_appsinstalled(apps_installed)
             router.set(memc_address, (key, packed,))
 
+    return_dict[os.getpid()] = errors
     logging.debug('Finish processed lines in memcache queue, with errors = %s' % errors)
 
 
@@ -266,16 +263,22 @@ def main(options):
 
     files = glob.iglob(options.pattern)
 
-    lock = mp.Lock()
+    lock = threading.Lock()
     lines_queue = mp.Queue()
     memcache_queue_manager = MemcacheQueueManager(device_memc.values())
+    return_dict = mp.Manager().dict()
 
     # Convert lines in protobuff objects and put in queue
     lines_worker_pool = ConsumerPool(que=lines_queue,
                                      size=options.workers_count,
                                      cls=mp.Process,
                                      target=lines_worker,
-                                     args=(memcache_queue_manager, device_memc, options.worker_buff_size, lock,))
+                                     args=(memcache_queue_manager,
+                                           device_memc,
+                                           options.worker_buff_size,
+                                           return_dict
+                                           )
+                                     )
     lines_worker_pool.start()
 
     # Put lines from files in queue
@@ -306,7 +309,8 @@ def main(options):
         pool.stop()
         pool.join()
 
-    err_rate = float(failed) / (failed + success)
+    errors = float(sum(return_dict.values()) + failed)
+    err_rate = errors / (errors + success)
     if err_rate < NORMAL_ERR_RATE:
         logging.info("Acceptable error rate (%s). Successfull load" % err_rate)
     else:
@@ -331,7 +335,6 @@ def prototest():
 
 
 if __name__ == '__main__':
-    # @TODO collect errors from processes
     # @TODO rename file after work is done
     # @TODO avoid logging lock in process spawn
     # @TODO write some tests
