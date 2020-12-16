@@ -115,6 +115,7 @@ def lines_producer(filepath, dst_queue, chunk_size, dry_run=False):
     logging.info('Finish processing %s' % filepath)
     if not dry_run:
         logging.info('Rename file after processing %s' % filepath)
+        dot_rename(filepath)
     return True
 
 
@@ -318,33 +319,12 @@ def main(options):
     logging.info('Execution took {:.4f}'.format(time.time() - ts))
 
 
-def prototest():
-    sample = "idfa\t1rfw452y52g2gq4g\t55.55\t42.42\t1423,43,567,3,7,23\ngaid\t7rfw452y52g2gq4g\t55.55\t42.42\t7423,424"
-    for line in sample.splitlines():
-        dev_type, dev_id, lat, lon, raw_apps = line.strip().split("\t")
-        apps = [int(a) for a in raw_apps.split(",") if a.isdigit()]
-        lat, lon = float(lat), float(lon)
-        ua = appsinstalled_pb2.UserApps()
-        ua.lat = lat
-        ua.lon = lon
-        ua.apps.extend(apps)
-        packed = ua.SerializeToString()
-        unpacked = appsinstalled_pb2.UserApps()
-        unpacked.ParseFromString(packed)
-        assert ua == unpacked
-
-
 if __name__ == '__main__':
-    # @TODO rename file after work is done
-    # @TODO avoid logging lock in process spawn
-    # @TODO write some tests
 
     op = OptionParser()
-    op.add_option("-t", "--test", action="store_true", default=False)
     op.add_option("-l", "--log", action="store", default=None)
     op.add_option("--dry", action="store_true", default=False)
-    # op.add_option("--pattern", action="store", default="data/appsinstalled/*.tsv.gz")
-    op.add_option("--pattern", action="store", default="test_data/*.tsv.gz")
+    op.add_option("--pattern", action="store", default="data/appsinstalled/*.tsv.gz")
 
     op.add_option("--idfa", action="store", default="127.0.0.1:33013")
     op.add_option("--gaid", action="store", default="127.0.0.1:33014")
@@ -364,9 +344,6 @@ if __name__ == '__main__':
                         format='[%(asctime)s] %(levelname).1s %(message)s',
                         datefmt='%Y.%m.%d %H:%M:%S'
                         )
-    if opts.test:
-        prototest()
-        sys.exit(0)
 
     logging.info("Memc loader started with options: %s" % opts)
     try:
