@@ -15,7 +15,6 @@ from optparse import OptionParser
 import appsinstalled_pb2
 from memc import MemcacheClient
 
-success = failed = 0
 
 """
 directory: [filepath, filepath, filepath, ...]
@@ -41,8 +40,10 @@ memcache
 """
 
 
-NORMAL_ERR_RATE = 0.01
+NORMAL_ERR_RATE = 1
 AppsInstalled = collections.namedtuple('AppsInstalled', ['dev_type', 'dev_id', 'lat', 'lon', 'apps'])
+success = failed = 0
+_sentinel = 'quit'
 
 
 def dot_rename(path):
@@ -153,7 +154,7 @@ def lines_worker(src_queue, dst_queues, memcache_addresses, chunk_size, return_d
     router = BufferQueueRouter(queues=dst_queues, max_size=chunk_size)
     while True:
         lines = src_queue.get()
-        if isinstance(lines, str) and lines == 'quit':
+        if isinstance(lines, str) and lines == _sentinel:
             router.flush()
             break
 
@@ -183,7 +184,7 @@ def memcache_consumer(src_queue, addr, memcache_client, lock, dry_run=False):
     """
     while True:
         lines = src_queue.get()
-        if isinstance(lines, str) and lines == 'quit':
+        if isinstance(lines, str) and lines == _sentinel:
             break
 
         mapping = {key: packed for key, packed in lines}
@@ -243,11 +244,22 @@ class ConsumerPool:
 
     def stop(self):
         for _ in self._consumers:
-            self._que.put('quit')
+            self._que.put(_sentinel)
 
     def join(self):
         for consumer in self._consumers:
             consumer.join()
+
+
+def percentage(part, total):
+    """
+    Caluclate percenage part of total
+    """
+    try:
+        result = 100 * float(part) / total
+    except ZeroDivisionError:
+        result = 0.0
+    return result
 
 
 def main(options):
@@ -310,8 +322,8 @@ def main(options):
         pool.stop()
         pool.join()
 
-    errors = float(sum(return_dict.values()) + failed)
-    err_rate = errors / (errors + success)
+    errors = (sum(return_dict.values()) + failed)
+    err_rate = percentage(errors, errors + success)
     if err_rate < NORMAL_ERR_RATE:
         logging.info("Acceptable error rate (%s). Successfull load" % err_rate)
     else:
