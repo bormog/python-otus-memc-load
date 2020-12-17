@@ -97,7 +97,7 @@ def lines_producer(filepath, dst_queue, chunk_size, dry_run=False):
     """
     if not os.path.isfile(filepath):
         logging.error('File not found by path %s' % filepath)
-        return False
+        return
 
     with gzip.open(filepath) as fr:
         logging.info('Start processing %s' % filepath)
@@ -117,7 +117,6 @@ def lines_producer(filepath, dst_queue, chunk_size, dry_run=False):
     if not dry_run:
         logging.info('Rename file after processing %s' % filepath)
         dot_rename(filepath)
-    return True
 
 
 class BufferQueueRouter:
